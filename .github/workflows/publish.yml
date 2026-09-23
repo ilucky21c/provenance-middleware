@@ -1,0 +1,47 @@
+name: Publish to npm
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Mints the short-lived OIDC token npm trades for publish rights.
+      # Without it npm looks for a token instead and fails with a 404 on
+      # write, which reads like "package not found" rather than "not
+      # authorised". Do not remove.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Upgrade npm explicitly rather than trusting whatever version the
+      # runner's Node bundles, and print both. A too-old npm ignores OIDC
+      # and fails with that same misleading 404, so keep the versions in
+      # the log where they can be read.
+      - run: npm install -g npm@latest
+      - run: node -v && npm -v
+
+      # Install before testing. Not every package here is dependency-free —
+      # ajp-protocol depends on provenance-protocol and its tests import it, and
+      # omitting this step made the test fail to resolve the module rather than
+      # fail a real assertion. `npm install` rather than `npm ci` because these
+      # packages carry no lockfile.
+      - run: npm install --no-audit --no-fund
+
+      # A release that fails its own tests must not reach the registry.
+      - run: npm test --if-present
+
+      # No NODE_AUTH_TOKEN: npm exchanges this workflow's OIDC identity for
+      # publish rights, configured as a trusted publisher on npmjs.com against
+      # this repository and this workflow filename. Provenance attestations are
+      # generated automatically, so --provenance is not passed.
+      - run: npm publish --access public
