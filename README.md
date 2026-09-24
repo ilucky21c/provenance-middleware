@@ -1,7 +1,7 @@
 # provenance-middleware
 
 One line that makes a service self-describing. It serves its own signed
-[Provenance](https://getprovenance.dev) declaration, proves on demand that it
+[Provenance](https://github.com/ilucky21c/provenance-protocol) declaration, proves on demand that it
 holds the declared key, and reports which version is running.
 
 ```bash
@@ -148,4 +148,4 @@ result.trustworthy  // both of the above
 All four should be as shown. If `location` is `unchecked`, your identifier does
 not name this host — see step 2.
 
-## MIT License — [getprovenance.dev](https://getprovenance.dev)
+## MIT License
