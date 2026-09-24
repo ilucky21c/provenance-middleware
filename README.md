@@ -22,6 +22,7 @@ That's it. Two addresses now exist:
 |---|---|
 | `GET /.well-known/provenance.json` | your signed declaration |
 | `POST /.well-known/provenance/challenge` | proof that this service holds the declared key |
+| `GET /.well-known/provenance/notices` | its recent signed notices |
 
 Anyone can verify both **offline**, with no account and no call to any service —
 including ours. See [provenance-protocol](https://github.com/ilucky21c/provenance-protocol).
@@ -112,6 +113,36 @@ const { declaration, json } = await prepare({ declaration: './PROVENANCE.yml' })
 | `version` | Overrides the declaration's `version` — handy for a build identifier. |
 | `declarationPath` | Defaults to `/.well-known/provenance.json`. |
 | `challengePath` | Defaults to `/.well-known/provenance/challenge`. |
+| `noticesPath` | Defaults to `/.well-known/provenance/notices`. |
+| `declarationUrl` | Public URL of the declaration, for the published notice. Defaults to the standard location for a domain id. |
+| `notify` | HTTPS endpoints of watchers to send the published notice to. None by default. |
+| `onNotify` | Called with each delivery outcome. |
+| `notices` | Further signed notices to publish, e.g. incidents. |
+
+## Notices — telling watchers what changed
+
+On startup the middleware signs a **declaration-published** notice (which
+declaration, by digest, and which version is running) and serves it with any
+other notices you give it at:
+
+| | |
+|---|---|
+| `GET /.well-known/provenance/notices` | your recent signed notices, newest first |
+
+Anyone can read that without asking. To have watchers hear immediately rather
+than on their next check, name them — your choice of attester, several, or none:
+
+```js
+app.use(provenance({
+  declaration: './PROVENANCE.yml',
+  notify: ['https://watcher.example/notices'],   // nothing is sent by default
+}));
+```
+
+Delivery happens in the background; a watcher being down never delays or
+breaks startup, and each failure is emitted as a warning (pass `onNotify` to
+record outcomes). To disclose an incident, sign it with `signNotice` from
+`provenance-protocol/keygen` and pass it in `notices`.
 
 ## What it does not do
 

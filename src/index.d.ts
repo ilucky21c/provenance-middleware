@@ -9,6 +9,8 @@
 export const DECLARATION_PATH: '/.well-known/provenance.json';
 /** Where key-control challenges are answered. */
 export const CHALLENGE_PATH: '/.well-known/provenance/challenge';
+/** Where recent signed notices are published, newest first. */
+export const NOTICES_PATH: '/.well-known/provenance/notices';
 
 export class ProvenanceMiddlewareError extends Error {
   name: 'ProvenanceMiddlewareError';
@@ -33,6 +35,26 @@ export interface ProvenanceOptions {
   declarationPath?: string;
   /** Defaults to `/.well-known/provenance/challenge`. */
   challengePath?: string;
+  /** Defaults to `/.well-known/provenance/notices`. */
+  noticesPath?: string;
+  /** Public URL of the served declaration. Defaults to the standard location for a domain id. */
+  declarationUrl?: string;
+  /** Further notices you signed (e.g. incidents), published alongside. Kept in memory. */
+  notices?: object[];
+  /**
+   * Watchers to send the signed "declaration published" notice to at startup —
+   * any attester, several, or none. Nothing is sent by default.
+   */
+  notify?: string[];
+  /** Called with the outcome of each delivery. Failures are also emitted as warnings. */
+  onNotify?: (result: NotifyResult) => void;
+}
+
+export interface NotifyResult {
+  url: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
 }
 
 export interface PreparedDeclaration {
@@ -42,7 +64,16 @@ export interface PreparedDeclaration {
   publicKey: string;
   /** The serialised body served at the declaration path. */
   json: string;
+  /** Signed declaration-published notice, or null when no URL could be determined. */
+  published: object | null;
+  /** Everything served at the notices path. */
+  notices: object[];
 }
+
+/** POST a signed notice to each watcher. Never throws; failures are warned and returned. */
+export function sendNotice(
+  notice: object, urls: string[], onNotify?: (result: NotifyResult) => void
+): Promise<NotifyResult[]>;
 
 /**
  * Read and sign the declaration without mounting anything.

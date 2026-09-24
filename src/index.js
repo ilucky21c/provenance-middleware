@@ -19,17 +19,23 @@
  *     it would let a stranger revoke the key. Only the domain-separated form is
  *     ever signed. See provenance-protocol SPEC.md § Signing and Verification.
  *   - It does not report anything about your traffic, users or requests. The
- *     only thing it sends anywhere is your public declaration and version.
+ *     only thing it ever sends is a signed notice that this declaration is
+ *     published — and only to watchers you list in `notify`.
  */
 
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
-import { signDeclaration, signAgentChallenge } from 'provenance-protocol/keygen';
+import { signDeclaration, signAgentChallenge, signNotice } from 'provenance-protocol/keygen';
+import { declarationDigest, keyFingerprint, locateDeclaration } from 'provenance-protocol/verify';
 
 /** Where a declaration is served from. Same shape as robots.txt: a fixed path. */
 export const DECLARATION_PATH = '/.well-known/provenance.json';
 /** Where key-control challenges are answered. */
 export const CHALLENGE_PATH = '/.well-known/provenance/challenge';
+/** Where this service's recent signed notices are published, newest first. */
+export const NOTICES_PATH = '/.well-known/provenance/notices';
+
+const NOTIFY_TIMEOUT_MS = 10000;
 
 const MAX_NONCE_LENGTH = 256;
 const NONCE_PATTERN = /^[A-Za-z0-9._~:-]+$/;
@@ -89,9 +95,14 @@ async function loadDeclaration(declaration) {
  * @param {string|object} options.declaration  Path, document text, or parsed object
  * @param {string} [options.privateKey]        Defaults to PROVENANCE_PRIVATE_KEY
  * @param {string} [options.version]           Overrides the declaration's version
- * @returns {Promise<{ declaration: object, provenanceId: string, publicKey: string, json: string }>}
+ * @param {string} [options.declarationUrl]    Public URL of the served declaration, for the
+ *        published notice. Defaults to the standard location for a domain id.
+ * @param {object[]} [options.notices]         Further signed notices to publish (e.g. incidents
+ *        you signed with signNotice). Kept in memory; persist them yourself.
+ * @returns {Promise<{ declaration: object, provenanceId: string, publicKey: string, json: string,
+ *                     published: object, notices: object[] }>}
  */
-export async function prepare({ declaration, privateKey, version } = {}) {
+export async function prepare({ declaration, privateKey, version, declarationUrl, notices = [] } = {}) {
   const key = requirePrivateKey(privateKey);
   const parsed = await loadDeclaration(declaration);
 
@@ -145,12 +156,76 @@ export async function prepare({ declaration, privateKey, version } = {}) {
     );
   }
 
+  // Announce what is being served. Signed, so it can travel by any route and
+  // be pulled by anyone from the notices path without trusting the carrier.
+  const digest = await declarationDigest(body);
+  const url = declarationUrl ?? locateDeclaration(provenanceId);
+  let published = null;
+  if (url) {
+    const notice = {
+      notice: '0.1',
+      id: `published-${digest.slice(7, 19)}-${Date.now().toString(36)}`,
+      event: 'declaration-published',
+      provenance_id: provenanceId,
+      key_fingerprint: await keyFingerprint(publicKey),
+      issued_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      claims: {
+        declaration_url: url,
+        declaration_digest: digest,
+        ...(body.version ? { running_version: String(body.version) } : {}),
+      },
+    };
+    published = { ...notice, signature: signNotice(key, notice) };
+  } else {
+    warn('No declarationUrl and no standard location for this provenance_id, so no published notice is issued.');
+  }
+
+  if (!Array.isArray(notices)) throw new ProvenanceMiddlewareError('notices must be an array of signed notices');
+
   return {
     declaration: body,
     provenanceId,
     publicKey,
     json: `${JSON.stringify(body, null, 2)}\n`,
+    published,
+    notices: [published, ...notices].filter(Boolean),
   };
+}
+
+/**
+ * Send the published notice to each watcher the operator chose. Runs in the
+ * background: a watcher being down must never stop the service starting. Each
+ * failure is reported as a warning — never swallowed — and every outcome is
+ * passed to `onNotify` when given.
+ *
+ * @param {object} notice
+ * @param {string[]} urls
+ * @param {(result: { url: string, ok: boolean, status?: number, error?: string }) => void} [onNotify]
+ */
+export async function sendNotice(notice, urls, onNotify) {
+  const results = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const u = new URL(url);
+        if (u.protocol !== 'https:') throw new Error('watcher URLs must be https');
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(notice),
+          redirect: 'error',
+          signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS),
+        });
+        return { url, ok: res.ok, status: res.status };
+      } catch (e) {
+        return { url, ok: false, error: e.message };
+      }
+    })
+  );
+  for (const r of results) {
+    if (!r.ok) warn(`Could not notify ${r.url}: ${r.error ?? `HTTP ${r.status}`}`);
+    try { onNotify?.(r); } catch { /* a callback must not take the service down */ }
+  }
+  return results;
 }
 
 /** Warnings go to stderr once and never throw — a log must not take a service down. */
@@ -183,17 +258,32 @@ function json(status, value, extraHeaders = {}) {
  * @param {object} options  Same as `prepare`, plus:
  * @param {string} [options.declarationPath]  Defaults to /.well-known/provenance.json
  * @param {string} [options.challengePath]    Defaults to /.well-known/provenance/challenge
+ * @param {string} [options.noticesPath]      Defaults to /.well-known/provenance/notices
+ * @param {string[]} [options.notify]         Watchers to send the published notice to at startup.
+ *        Your choice — any attester, several, or none. Nothing is sent by default.
+ * @param {Function} [options.onNotify]       Called with each delivery result
  * @returns {Promise<(request: Request) => Promise<Response|null>>}
  */
 export async function handler(options = {}) {
   const {
     declarationPath = DECLARATION_PATH,
     challengePath = CHALLENGE_PATH,
+    noticesPath = NOTICES_PATH,
     privateKey,
+    notify = [],
+    onNotify,
   } = options;
 
   const prepared = await prepare(options);
   const key = requirePrivateKey(privateKey);
+
+  if (!Array.isArray(notify)) throw new ProvenanceMiddlewareError('notify must be an array of https URLs');
+  if (notify.length && !prepared.published) {
+    warn('notify is set but no published notice could be issued, so nothing was sent.');
+  } else if (notify.length) {
+    // Not awaited: start-up must not wait on, or fail because of, a watcher.
+    sendNotice(prepared.published, notify, onNotify);
+  }
 
   return async function provenanceHandler(request) {
     const { pathname } = new URL(request.url);
@@ -211,6 +301,20 @@ export async function handler(options = {}) {
           // Short: a declaration changes when the service is redeployed, and a
           // verifier that caches a withdrawn one for a day is worse than one
           // that asks again.
+          'Cache-Control': 'public, max-age=300',
+        },
+      });
+    }
+
+    if (pathname === noticesPath) {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return json(405, { error: 'Method not allowed' }, { Allow: 'GET, HEAD' });
+      }
+      return new Response(request.method === 'HEAD' ? null : `${JSON.stringify(prepared.notices, null, 2)}\n`, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'public, max-age=300',
         },
       });
@@ -295,6 +399,7 @@ export function provenance(options = {}) {
   const paths = new Set([
     options.declarationPath ?? DECLARATION_PATH,
     options.challengePath ?? CHALLENGE_PATH,
+    options.noticesPath ?? NOTICES_PATH,
   ]);
 
   return function provenanceMiddleware(req, res, next) {
