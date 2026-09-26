@@ -7,9 +7,9 @@
   "author": "ilucky21c",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ilucky21c/provenance-middleware"
+    "url": "https://github.com/provenance-protocol/provenance-middleware"
   },
-  "homepage": "https://github.com/ilucky21c/provenance-middleware#readme",
+  "homepage": "https://github.com/provenance-protocol/provenance-middleware#readme",
   "keywords": [
     "ai-agent",
     "agent-identity",

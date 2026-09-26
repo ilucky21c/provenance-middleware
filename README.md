@@ -1,7 +1,7 @@
 # provenance-middleware
 
 One line that makes a service self-describing. It serves its own signed
-[Provenance](https://github.com/ilucky21c/provenance-protocol) declaration, proves on demand that it
+[Provenance](https://github.com/provenance-protocol/provenance-protocol) declaration, proves on demand that it
 holds the declared key, and reports which version is running.
 
 ```bash
@@ -25,7 +25,7 @@ That's it. Two addresses now exist:
 | `GET /.well-known/provenance/notices` | its recent signed notices |
 
 Anyone can verify both **offline**, with no account and no call to any service —
-including ours. See [provenance-protocol](https://github.com/ilucky21c/provenance-protocol).
+including ours. See [provenance-protocol](https://github.com/provenance-protocol/provenance-protocol).
 
 ## Why not just commit a signed file?
 
