@@ -41,6 +41,18 @@ right now holds the key. The challenge endpoint can.
 
 ## Setup
 
+**Quickest:** in your project, run
+
+```bash
+npx provenance-protocol init --domain agent.example.com
+```
+
+It writes and signs `PROVENANCE.yml` from what your project already shows,
+creates a key in `.provenance-key` (kept out of git), and asks only what it
+cannot read. Set `PROVENANCE_PRIVATE_KEY` to that key in your service's
+environment, add the line above, and you are done. The manual steps below do
+the same by hand.
+
 **1. Generate a keypair on your own machine.** The private half is used in your
 process and never sent anywhere.
 
