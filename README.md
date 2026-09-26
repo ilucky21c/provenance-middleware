@@ -118,6 +118,7 @@ const { declaration, json } = await prepare({ declaration: './PROVENANCE.yml' })
 | `notify` | HTTPS endpoints of watchers to send the published notice to. None by default. |
 | `onNotify` | Called with each delivery outcome. |
 | `notices` | Further signed notices to publish, e.g. incidents. |
+| `deliverDeclaration` | Include the full signed declaration in the published notice, for internal services. |
 
 ## Notices — telling watchers what changed
 
@@ -143,6 +144,21 @@ Delivery happens in the background; a watcher being down never delays or
 breaks startup, and each failure is emitted as a warning (pass `onNotify` to
 record outcomes). To disclose an incident, sign it with `signNotice` from
 `provenance-protocol/keygen` and pass it in `notices`.
+
+**Internal services.** A service on a private network cannot be fetched by an
+outside watcher, so let it hand the declaration over instead:
+
+```js
+app.use(provenance({
+  declaration: './PROVENANCE.yml',
+  deliverDeclaration: true,                     // the full signed declaration travels in the notice
+  notify: ['https://watcher.example/notices'],
+}));
+```
+
+Your organisation then vouches for the agent with
+`npx provenance-protocol affiliate` — see provenance-protocol, *Internal agents*.
+The watcher never needs access to your network.
 
 ## What it does not do
 

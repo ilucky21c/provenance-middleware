@@ -42,6 +42,11 @@ export interface ProvenanceOptions {
   /** Further notices you signed (e.g. incidents), published alongside. Kept in memory. */
   notices?: object[];
   /**
+   * Include the full signed declaration in the published notice — for internal
+   * or private services that watchers cannot fetch. Pair with `notify`.
+   */
+  deliverDeclaration?: boolean;
+  /**
    * Watchers to send the signed "declaration published" notice to at startup —
    * any attester, several, or none. Nothing is sent by default.
    */

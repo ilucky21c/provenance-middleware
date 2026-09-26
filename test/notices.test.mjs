@@ -55,5 +55,13 @@ const plain = await sendNotice(p.published, ['http://insecure.example/in']);
 t('plain http watcher refused', plain[0].ok === false && /https/.test(plain[0].error));
 globalThis.fetch = realFetch;
 
+// Internal service: the declaration travels inside the notice.
+const { openDeliveredDeclaration } = await import('provenance-protocol');
+const internal = { ...declaration, provenance_id: 'provenance:domain:hr.corp.internal' };
+const pi = await prepare({ declaration: internal, privateKey, deliverDeclaration: true });
+const opened = await openDeliveredDeclaration(pi.published);
+t('an internal service delivers its declaration inside the notice', opened.valid && opened.declaration?.provenance_id === 'provenance:domain:hr.corp.internal', opened.reason);
+t('without deliverDeclaration the notice carries only the digest', !('declaration' in p.published.claims));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

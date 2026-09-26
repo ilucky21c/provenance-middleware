@@ -99,10 +99,12 @@ async function loadDeclaration(declaration) {
  *        published notice. Defaults to the standard location for a domain id.
  * @param {object[]} [options.notices]         Further signed notices to publish (e.g. incidents
  *        you signed with signNotice). Kept in memory; persist them yourself.
+ * @param {boolean} [options.deliverDeclaration] Put the full signed declaration inside the
+ *        published notice — for internal or private services that watchers cannot fetch.
  * @returns {Promise<{ declaration: object, provenanceId: string, publicKey: string, json: string,
  *                     published: object, notices: object[] }>}
  */
-export async function prepare({ declaration, privateKey, version, declarationUrl, notices = [] } = {}) {
+export async function prepare({ declaration, privateKey, version, declarationUrl, notices = [], deliverDeclaration = false } = {}) {
   const key = requirePrivateKey(privateKey);
   const parsed = await loadDeclaration(declaration);
 
@@ -173,6 +175,9 @@ export async function prepare({ declaration, privateKey, version, declarationUrl
         declaration_url: url,
         declaration_digest: digest,
         ...(body.version ? { running_version: String(body.version) } : {}),
+        // For a service nobody outside can reach, the watcher receives the
+        // declaration itself rather than fetching it.
+        ...(deliverDeclaration ? { declaration: body } : {}),
       },
     };
     published = { ...notice, signature: signNotice(key, notice) };
